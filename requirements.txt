@@ -1,1 +1,7 @@
 streamlit
+pandas
+pdfplumber
+openpyxl
+seaborn
+matplotlib
+xlsxwriter
