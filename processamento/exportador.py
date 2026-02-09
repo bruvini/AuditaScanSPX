@@ -3,65 +3,88 @@ from io import BytesIO
 
 def gerar_excel_colorido(df):
     """
-    Gera um Excel com linhas coloridas, datas formatadas e colunas auto-ajustadas.
+    Gera um Excel com linhas coloridas baseadas na conciliação,
+    datas formatadas e colunas auto-ajustadas.
+    Compatível com a nova estrutura de colunas (DN, Médico, etc).
     """
-    # Criamos uma cópia para não afetar o DataFrame original da sessão
+    if df is None or df.empty:
+        return None
+
     df_export = df.copy()
     
+    # 1. Tratamento de Datas para o Excel não mostrar horas (00:00:00)
+    # A coluna 'DN' já vem como string do comparador, então focamos na 'Data do Exame'
+    if "Data do Exame" in df_export.columns:
+        df_export["Data do Exame"] = pd.to_datetime(df_export["Data do Exame"]).dt.date
+
     output = BytesIO()
+    
+    # Engine 'xlsxwriter' é necessária para formatação condicional avançada
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Auditoria')
-        
         workbook  = writer.book
         worksheet = writer.sheets['Auditoria']
 
-        # 1. DEFINIÇÃO DE FORMATOS
-        # Formatos de cor com a data embutida
+        # --- DEFINIÇÃO DE ESTILOS ---
         fmt_data = 'dd/mm/yyyy'
         
-        # OK - Verde Claro
-        f_ok = workbook.add_format({'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': fmt_data, 'border': 1})
-        # Divergência - Amarelo Claro
-        f_div = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C5700', 'num_format': fmt_data, 'border': 1})
-        # Erro - Vermelho Claro
-        f_err = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': fmt_data, 'border': 1})
+        # Estilos de linha (Fundo + Borda + Formato de Data)
+        style_base = {'border': 1, 'num_format': fmt_data}
         
-        # Formato apenas para o cabeçalho (Negrito e cinza claro)
-        f_header = workbook.add_format({'bold': True, 'bg_color': '#D3D3D3', 'border': 1})
+        f_verde    = workbook.add_format({**style_base, 'bg_color': '#C6EFCE', 'font_color': '#006100'}) # Verde Excel
+        f_amarelo  = workbook.add_format({**style_base, 'bg_color': '#FFEB9C', 'font_color': '#9C5700'}) # Amarelo Excel
+        f_vermelho = workbook.add_format({**style_base, 'bg_color': '#FFC7CE', 'font_color': '#9C0006'}) # Vermelho Excel
+        
+        # Estilo do Cabeçalho
+        f_header = workbook.add_format({
+            'bold': True, 
+            'bg_color': '#4472C4', # Azul corporativo
+            'font_color': 'white',
+            'border': 1,
+            'align': 'center',
+            'valign': 'vcenter'
+        })
 
-        # 2. APLICANDO CORES E FORMATO DE DATA NAS LINHAS
-        idx_status = df_export.columns.get_loc("Status Auditoria")
+        # --- LÓGICA DE COLORAÇÃO ---
+        # Identifica a posição das colunas críticas pelos NOVOS NOMES
+        try:
+            idx_solic = df_export.columns.get_loc("Solicitação Física")
+            idx_laudo = df_export.columns.get_loc("Laudo Digital")
+        except KeyError:
+            # Segurança: Se as colunas não existirem, não aplica cor mas gera o excel
+            idx_solic = -1
+            idx_laudo = -1
 
+        # Itera sobre as linhas para aplicar a cor
         for row_num in range(len(df_export)):
-            status = str(df_export.iloc[row_num, idx_status])
+            fmt = f_amarelo # Padrão: Divergência Parcial
             
-            # Escolhe o formato baseado no status
-            if '✅' in status:
-                fmt_atual = f_ok
-            elif '⚠️' in status:
-                fmt_atual = f_div
-            else:
-                fmt_atual = f_err
+            if idx_solic != -1 and idx_laudo != -1:
+                # Pega o valor da célula (convertendo para string maiúscula para garantir)
+                s = str(df_export.iloc[row_num, idx_solic]).strip().upper()
+                l = str(df_export.iloc[row_num, idx_laudo]).strip().upper()
                 
-            # Aplica o formato na linha inteira (da coluna A até a última)
-            # O ExcelWriter começa a contar do 1 para dados (0 é o header)
-            worksheet.set_row(row_num + 1, None, fmt_atual)
-
-        # 3. AUTO-AJUSTE DE LARGURA DAS COLUNAS
-        # Iteramos por cada coluna para achar o tamanho máximo do conteúdo
-        for i, col in enumerate(df_export.columns):
-            # Comprimento do nome da coluna
-            column_len = len(str(col))
-            # Comprimento do maior item na coluna (máximo de 50 para não ficar gigante)
-            max_val_len = df_export[col].astype(str).map(len).max()
+                if s == "SIM" and l == "SIM":
+                    fmt = f_verde
+                elif s == "NÃO" and l == "NÃO":
+                    fmt = f_vermelho
+                # Qualquer outra combinação (SIM/NÃO ou NÃO/SIM) fica Amarelo
             
-            width = max(column_len, max_val_len) + 2 # +2 de margem
-            if width > 60: width = 60 # Limite para a coluna Observação não esticar infinito
+            # Aplica o formato na linha inteira (+1 pois o header é a linha 0)
+            worksheet.set_row(row_num + 1, None, fmt)
+
+        # --- AJUSTE FINO DO LAYOUT ---
+        # Formata o cabeçalho e ajusta largura das colunas
+        for i, col in enumerate(df_export.columns):
+            # Calcula largura baseada no tamanho do texto da coluna ou do header
+            max_len = max(
+                df_export[col].astype(str).map(len).max(),
+                len(str(col))
+            )
+            # Adiciona um respiro (+2) e trava num máximo de 50 para não ficar gigante
+            width = min(max_len + 2, 50)
             
             worksheet.set_column(i, i, width)
-            
-        # Reaplica o formato de cabeçalho
-        for col_num, value in enumerate(df_export.columns.values):
-            worksheet.write(0, col_num, value, f_header)
+            worksheet.write(0, i, col, f_header)
 
     return output.getvalue()

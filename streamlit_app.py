@@ -1,177 +1,381 @@
 import streamlit as st
 import pandas as pd
 import os
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 
-# Nossos módulos
-from processamento.extrator_excel import carregar_dados_excel, analisar_qualidade_dados
-from processamento.extrator_pdf import processar_pdf_laudos
-from processamento.comparador import realizar_conciliacao
-from processamento.exportador import gerar_excel_colorido
+# --- IMPORTAÇÃO DOS SEUS MÓDULOS ---
+try:
+    from processamento.extrator_excel import carregar_dados_excel, analisar_qualidade_dados
+    from processamento.extrator_pdf import processar_pdf_laudos
+    from processamento.comparador import realizar_conciliacao
+    from processamento.exportador import gerar_excel_colorido
+    from processamento.extrator_scaneado import extrair_dados_solicitacao
+except ImportError as e:
+    st.error(f"❌ Erro crítico de importação: {e}. Verifique se a pasta 'processamento' existe.")
+    st.stop()
 
-# Configuração da Página
-st.set_page_config(page_title="AuditaScan SPX", layout="wide", page_icon="🔍")
+# --- CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(
+    page_title="AuditaScan SPX",
+    layout="wide",
+    page_icon="🏥",
+    initial_sidebar_state="expanded"
+)
 
-# --- ESTILO CSS PERSONALIZADO ---
+# --- ESTILO CSS (Design System) ---
 st.markdown("""
     <style>
-    .main { background-color: #f8fafc; }
-    .header-container {
-        background: linear-gradient(90deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 40px;
-        border-radius: 20px;
+    @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+    
+    html, body, [class*="css"] { font-family: 'Roboto', sans-serif; }
+    .stApp { background-color: #f8fafc; }
+    
+    /* Header Principal */
+    .main-header {
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+        padding: 2.5rem;
+        border-radius: 12px;
         color: white;
+        margin-bottom: 2rem;
         text-align: center;
-        margin-bottom: 30px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
     }
-    .step-card {
-        background-color: white;
-        padding: 25px;
-        border-radius: 15px;
-        border: 1px solid #e2e8f0;
+    .main-header h1 { 
+        color: white; 
+        margin-bottom: 0.5rem; 
+        font-weight: 700; 
+        letter-spacing: -0.5px;
+    }
+    .main-header p {
+        font-size: 1.1rem;
+        opacity: 0.9;
+        font-weight: 300;
+    }
+    
+    /* Box de ROI (Tempo Economizado) */
+    .roi-box {
+        background-color: #dcfce7;
+        border: 1px solid #86efac;
+        color: #166534;
+        padding: 1.5rem;
+        border-radius: 10px;
+        text-align: center;
+        margin-top: 20px;
         margin-bottom: 20px;
-        transition: transform 0.2s;
+        font-size: 1.2rem;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
     }
-    .step-number {
-        background-color: #3b82f6;
-        color: white;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        margin-right: 10px;
-        font-weight: bold;
+    .roi-time {
+        font-weight: 700;
+        font-size: 1.5rem;
+        color: #14532d;
+    }
+    
+    /* Ajuste para Métricas (Cards) */
+    div[data-testid="stMetric"] {
+        background-color: white;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        border: 1px solid #e2e8f0;
+    }
+
+    /* Footer Fixo */
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        background-color: white;
+        color: #64748b;
+        text-align: center;
+        padding: 10px;
+        font-size: 0.8rem;
+        border-top: 1px solid #e2e8f0;
+        z-index: 100;
+    }
+    
+    /* Ajuste para centralizar logo na sidebar */
+    [data-testid="stSidebar"] img {
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+        margin-bottom: 20px;
+        border-radius: 10px;
+    }
+    
+    /* Inputs alinhados */
+    .stFileUploader {
+        padding-top: 10px;
     }
     </style>
-    """, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
-# --- CABEÇALHO ---
-st.markdown("""
-    <div class="header-container">
-        <h1>🔍 AuditaScan SPX</h1>
-        <p style="font-size: 1.3em;">Inteligência de Dados para Auditoria Hospitalar</p>
-        <p style="opacity: 0.9;">Reduza em até 90% o tempo de conferência manual de laudos e solicitações.</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-# --- ESTADO DA SESSÃO ---
+# --- INICIALIZAÇÃO DE ESTADO ---
 if 'etapa' not in st.session_state: st.session_state.etapa = 1
 if 'df_excel' not in st.session_state: st.session_state.df_excel = None
 if 'df_laudos' not in st.session_state: st.session_state.df_laudos = None
+if 'df_scans' not in st.session_state: st.session_state.df_scans = None
+if 'df_auditoria' not in st.session_state: st.session_state.df_auditoria = None
+if 'tempo_economizado' not in st.session_state: st.session_state.tempo_economizado = None
 
-# --- FLUXO GAMIFICADO ---
+# --- SIDEBAR (NAVEGAÇÃO E HELP) ---
+with st.sidebar:
+    st.image("https://d2q79iu7y748jz.cloudfront.net/s/_squarelogo/256x256/1eb674070b34e074b60c70b24e82bd01", width=180)
+    
+    st.title("AuditaScan SPX")
+    st.caption("v2.4 | Hospital Mun. São José")
+    st.markdown("---")
+    
+    st.markdown("### 🧭 Guia de Uso")
+    st.info("""
+    **Siga o fluxo para auditar:**
+    
+    1. **Planilha**: Carregue o relatório de produção (.xlsx).
+    2. **Laudos**: Importe os PDFs oficiais dos exames.
+    3. **Scans**: Suba as digitalizações das guias físicas.
+    4. **Auditoria**: O sistema cruza os dados automaticamente.
+    """)
 
-# PASSO 1: EXCEL
+    st.markdown("---")
+    if st.button("🔄 Nova Auditoria", type="secondary", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+
+# --- HEADER E KPIS ---
+def render_header():
+    st.markdown("""
+    <div class="main-header">
+        <h1>🔍 AuditaScan SPX</h1>
+        <p>Excelência e Precisão na Auditoria de Diagnósticos por Imagem</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_metrics():
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("1. Base Excel", "OK" if st.session_state.df_excel is not None else "Pendente",
+                  delta="Carregado" if st.session_state.df_excel is not None else None)
+    with col2:
+        val = f"{len(st.session_state.df_laudos)} exames" if st.session_state.df_laudos is not None else "Pendente"
+        st.metric("2. Laudos PDF", "OK" if st.session_state.df_laudos is not None else "Aguardando",
+                  delta=val if st.session_state.df_laudos is not None else None)
+    with col3:
+        val_scan = f"{len(st.session_state.df_scans)} guias" if st.session_state.df_scans is not None else "Pendente"
+        st.metric("3. PDF Solicitações", "OK" if st.session_state.df_scans is not None else "Aguardando",
+                  delta=val_scan if st.session_state.df_scans is not None else None)
+    with col4:
+        status = "Pronto" if st.session_state.etapa >= 4 else "Em Preparação"
+        st.metric("Status", status, delta_color="inverse" if status == "Pronto" else "off")
+
+render_header()
+render_metrics()
+st.markdown("---")
+
+# --- ÁREA DE INPUTS (TRÊS COLUNAS LADO A LADO) ---
 with st.container():
-    st.markdown('<div class="step-card">', unsafe_allow_html=True)
-    st.markdown('<h3><span class="step-number">1</span> Base de Dados (Excel)</h3>', unsafe_allow_html=True)
-    
-    arquivo_excel = st.file_uploader("Arraste aqui a planilha de procedimentos", type=["xlsx"], key="up_excel")
-    
-    if arquivo_excel:
-        df_temp = carregar_dados_excel(arquivo_excel)
-        stats = analisar_qualidade_dados(df_temp)
-        st.session_state.df_excel = df_temp
-        st.session_state.etapa = max(st.session_state.etapa, 2)
-        st.success(f"📈 **Planilha Analisada:** {stats['total_registros']} registros encontrados em {len(stats['exames_por_data'])} datas diferentes.")
-    st.markdown('</div>', unsafe_allow_html=True)
+    col_excel, col_laudos, col_scans = st.columns(3, gap="medium")
 
-# PASSO 2: LAUDOS (DESBLOQUEIA APÓS PASSO 1)
-if st.session_state.etapa >= 2:
-    with st.container():
-        st.markdown('<div class="step-card">', unsafe_allow_html=True)
-        st.markdown('<h3><span class="step-number">2</span> Laudos Oficiais (PDF)</h3>', unsafe_allow_html=True)
+    # ---------------------------------------------------------
+    # COLUNA 1: DADOS DA PLANILHA
+    # ---------------------------------------------------------
+    with col_excel:
+        st.markdown("### 📂 1. Dados da Planilha")
         
-        arquivos_laudos = st.file_uploader("Selecione os arquivos de laudo (múltiplos permitidos)", type=["pdf"], accept_multiple_files=True)
+        if st.session_state.df_excel is not None:
+            # Card de Sucesso com contagem
+            st.success(f"✅ **{len(st.session_state.df_excel)} linhas** carregadas.")
+            if st.checkbox("Trocar arquivo Excel?", key="chk_excel"):
+                st.session_state.df_excel = None
+                st.rerun()
+        else:
+            arquivo_excel = st.file_uploader("Upload Planilha (.xlsx)", type=["xlsx"], key="up_excel")
+            if arquivo_excel:
+                try:
+                    with st.spinner("Lendo planilha..."):
+                        df_temp = carregar_dados_excel(arquivo_excel)
+                        if 'Data' not in df_temp.columns or 'Paciente' not in df_temp.columns:
+                            st.error("Colunas obrigatórias ausentes: 'Data' e 'Paciente'.")
+                        else:
+                            st.session_state.df_excel = df_temp
+                            st.session_state.etapa = max(st.session_state.etapa, 2)
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Erro: {e}")
+
+    # ---------------------------------------------------------
+    # COLUNA 2: LAUDOS MÉDICOS
+    # ---------------------------------------------------------
+    with col_laudos:
+        st.markdown("### 📄 2. Laudos Médicos")
         
-        if arquivos_laudos:
-            with st.spinner("Processando inteligência dos laudos..."):
-                todos_exames = []
-                for arq in arquivos_laudos:
-                    with open("temp_l.pdf", "wb") as f: f.write(arq.getbuffer())
-                    todos_exames.extend(processar_pdf_laudos("temp_l.pdf"))
+        if st.session_state.etapa < 2:
+            st.info("🔒 Aguardando Planilha...")
+        elif st.session_state.df_laudos is not None:
+            # Card de Sucesso com contagem
+            st.success(f"✅ **{len(st.session_state.df_laudos)} exames** extraídos.")
+            if st.checkbox("Trocar Laudos?", key="chk_laudos"):
+                st.session_state.df_laudos = None
+                st.rerun()
+        else:
+            arquivos_laudos = st.file_uploader("Upload Laudos (.pdf)", type=["pdf"], accept_multiple_files=True)
+            if arquivos_laudos:
+                with st.status("Processando Laudos...", expanded=True):
+                    todos_exames = []
+                    for i, arq in enumerate(arquivos_laudos):
+                        st.write(f"Lendo: {arq.name}")
+                        temp_filename = f"temp_laudo_{i}.pdf"
+                        with open(temp_filename, "wb") as f: f.write(arq.getbuffer())
+                        try:
+                            todos_exames.extend(processar_pdf_laudos(temp_filename))
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                        finally:
+                            if os.path.exists(temp_filename): os.remove(temp_filename)
+                    
+                    if todos_exames:
+                        st.session_state.df_laudos = pd.DataFrame(todos_exames)
+                        st.session_state.etapa = max(st.session_state.etapa, 3)
+                        st.rerun()
+                    else:
+                        st.warning("Nenhum dado encontrado.")
+
+    # ---------------------------------------------------------
+    # COLUNA 3: PDF DAS SOLICITAÇÕES
+    # ---------------------------------------------------------
+    with col_scans:
+        st.markdown("### 📷 3. PDF das Solicitações")
+        
+        if st.session_state.etapa < 3:
+            st.info("🔒 Aguardando Laudos...")
+        elif st.session_state.df_scans is not None:
+            # Card de Sucesso com contagem
+            st.success(f"✅ **{len(st.session_state.df_scans)} guias** lidas.")
+            
+            with st.expander("Ver dados extraídos"):
+                st.dataframe(st.session_state.df_scans, use_container_width=True)
                 
-                st.session_state.df_laudos = pd.DataFrame(todos_exames)
-                st.session_state.etapa = max(st.session_state.etapa, 3)
-                st.success(f"📄 **Leitura Concluída:** {len(st.session_state.df_laudos)} exames identificados nos documentos.")
-        st.markdown('</div>', unsafe_allow_html=True)
+            if st.checkbox("Trocar Scans?", key="chk_scans"):
+                st.session_state.df_scans = None
+                st.rerun()
+        else:
+            uploaded_scans = st.file_uploader("Upload Scans (.pdf)", type=["pdf"], accept_multiple_files=True, key="up_scans")
+            if uploaded_scans:
+                with st.status("Lendo (OCR)...", expanded=True):
+                    todos_scans = []
+                    for i, arq in enumerate(uploaded_scans):
+                        st.write(f"Processando: {arq.name}")
+                        temp_filename = f"temp_scan_{i}.pdf"
+                        with open(temp_filename, "wb") as f: f.write(arq.getbuffer())
+                        try:
+                            todos_scans.extend(extrair_dados_solicitacao(temp_filename))
+                        except Exception as e:
+                            st.error(f"Erro: {e}")
+                        finally:
+                            if os.path.exists(temp_filename): os.remove(temp_filename)
+                    
+                    if todos_scans:
+                        st.session_state.df_scans = pd.DataFrame(todos_scans)
+                        st.session_state.etapa = 4
+                        st.rerun()
+                    else:
+                        st.warning("Nenhuma guia identificada.")
 
-# PASSO 3: SOLICITAÇÕES
-if st.session_state.etapa >= 3:
-    with st.container():
-        st.markdown('<div class="step-card">', unsafe_allow_html=True)
-        st.markdown('<h3><span class="step-number">3</span> Solicitações Escaneadas</h3>', unsafe_allow_html=True)
-        st.caption("Fase final: Validação das imagens escaneadas (Disponível em breve)")
-        st.file_uploader("Upload de imagens escaneadas", type=["pdf"], disabled=True)
-        
-        # Botão para liberar a conciliação
-        if st.button("Finalizar Preparação e Ir para Auditoria ➡️"):
-            st.session_state.etapa = 4
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# --- ETAPA 4: CONCILIAÇÃO ---
+# --- ÁREA DE AUDITORIA ---
 if st.session_state.etapa >= 4:
-    st.divider()
-    st.header("⚖️ Painel de Conciliação")
+    st.markdown("---")
+    st.subheader("⚙️ Execução da Auditoria")
     
-    col_btn, col_info = st.columns([1, 3])
-    with col_btn:
-        if st.button("🚀 Iniciar Auditoria Automática", use_container_width=True, type="primary"):
-            with st.status("Auditando dados...", expanded=False) as s:
-                # Realiza a comparação entre as fontes
-                df_res = realizar_conciliacao(st.session_state.df_excel, st.session_state.df_laudos)
-                st.session_state.df_auditoria = df_res
-                s.update(label="Auditoria Finalizada!", state="complete")
+    col_filtros, col_acao = st.columns([3, 1])
+    
+    with col_filtros:
+        if st.session_state.df_excel is not None and 'Data' in st.session_state.df_excel.columns:
+            datas_unicas = sorted(st.session_state.df_excel['Data'].dropna().unique())
+            datas_selecionadas = st.multiselect(
+                "Filtrar período para análise:",
+                options=datas_unicas,
+                format_func=lambda x: x.strftime('%d/%m/%Y'),
+                default=datas_unicas
+            )
+        else:
+            datas_selecionadas = []
 
-    if 'df_auditoria' in st.session_state:
-        df_fin = st.session_state.df_auditoria
-        
-        # --- PREPARAÇÃO PARA EXPORTAÇÃO (EXCEL) ---
-        # Criamos uma cópia limpa para o exportador não sujar a visualização da tela
-        df_para_exportar = df_fin.copy()
+    with col_acao:
+        st.write("")
+        st.write("")
+        btn_auditar = st.button("🚀 AUDITAR AGORA", type="primary", use_container_width=True)
+    
+    if btn_auditar:
+        if not datas_selecionadas:
+            st.warning("Selecione pelo menos uma data.")
+        else:
+            with st.spinner("Cruzando informações..."):
+                df_filtrado = st.session_state.df_excel[
+                    st.session_state.df_excel['Data'].isin(datas_selecionadas)
+                ].copy()
+                
+                inicio = time.time()
+                resultado = realizar_conciliacao(
+                    df_filtrado, 
+                    st.session_state.df_laudos, 
+                    st.session_state.df_scans
+                )
+                fim = time.time()
+                
+                tempo_real = fim - inicio
+                linhas = len(df_filtrado)
+                economia_seg = max(0, (linhas * 15) - tempo_real)
+                str_economia = str(timedelta(seconds=int(economia_seg)))
+                
+                st.session_state.df_auditoria = resultado
+                st.session_state.tempo_economizado = str_economia
+                st.toast("Auditoria finalizada com sucesso!", icon="🎉")
 
-        # Converte colunas de tempo para apenas data (remove 00:00:00)
-        for col in ["Data", "D. Nascimento"]:
-            if col in df_para_exportar.columns:
-                df_para_exportar[col] = pd.to_datetime(df_para_exportar[col]).dt.date
-
-        # Gera o arquivo binário com as cores e larguras ajustadas
-        with st.spinner("Gerando arquivo Excel colorido..."):
-            excel_colorido = gerar_excel_colorido(df_para_exportar)
+    # RESULTADOS
+    if st.session_state.df_auditoria is not None and not st.session_state.df_auditoria.empty:
         
-        # --- INTERFACE DE RESULTADOS ---
-        # Filtros e Download
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            opcoes = list(df_fin['Status Auditoria'].unique())
-            filtro = st.multiselect("Filtrar visualização por status:", options=opcoes, default=opcoes)
+        if st.session_state.tempo_economizado:
+            st.markdown(f"""
+            <div class="roi-box">
+                ⏱️ <b>Eficiência Operacional:</b> Você economizou cerca de 
+                <span class="roi-time">{st.session_state.tempo_economizado}</span> 
+                de trabalho manual nesta auditoria.
+            </div>
+            """, unsafe_allow_html=True)
         
-        with c2:
+        st.markdown("### 📊 Relatório de Divergências")
+        
+        tab1, tab2 = st.tabs(["🔍 Visão Interativa", "📥 Exportar Excel"])
+        
+        with tab1:
+            df_visual = st.session_state.df_auditoria.copy()
+            st.dataframe(
+                df_visual,
+                column_config={
+                    "Data do Exame": st.column_config.DateColumn("Data do Exame", format="DD/MM/YYYY"),
+                    "Solicitação Física": st.column_config.TextColumn("Solicitação Física", width="small"),
+                    "Laudo Digital": st.column_config.TextColumn("Laudo Digital", width="small"),
+                    "Detalhe Scan": st.column_config.TextColumn("Detalhe Scan", width="medium"),
+                    "Detalhe Laudo": st.column_config.TextColumn("Detalhe Laudo", width="medium")
+                },
+                use_container_width=True,
+                hide_index=True
+            )
+            
+        with tab2:
+            st.success("Relatório pronto. As linhas coloridas (Verde/Vermelho) estarão no arquivo baixado.")
+            excel_data = gerar_excel_colorido(st.session_state.df_auditoria)
             st.download_button(
-                label="📥 Baixar Planilha Auditada",
-                data=excel_colorido,
+                label="📥 Baixar Excel Colorido (.xlsx)",
+                data=excel_data,
                 file_name=f"Auditoria_SPX_{datetime.now().strftime('%d-%m-%Y')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-        # Filtra o que será exibido na tabela da tela
-        df_exibir = df_fin[df_fin['Status Auditoria'].isin(filtro)]
-
-        # --- TABELA COM DESIGN PERFECCIONISTA ---
-        st.dataframe(
-            df_exibir,
-            column_config={
-                "Status Auditoria": st.column_config.TextColumn("Status", width="small", help="✅ OK | ⚠️ Divergência | ❌ Não Encontrado"),
-                "Data": st.column_config.DateColumn("Data Exame", format="DD/MM/YYYY"),
-                "D. Nascimento": st.column_config.DateColumn("Nascimento", format="DD/MM/YYYY"),
-                "Observação": st.column_config.TextColumn("Observação", width="large"),
-                "Paciente": st.column_config.TextColumn("Paciente", width="medium"),
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+# --- FOOTER ---
+st.markdown(f"""
+<div class="footer">
+    <p>© {datetime.now().year} Hospital Municipal São José. Todos os direitos reservados. | Desenvolvido para Coordenação NIR pelo Enf. Bruno Vinícius.</p>
+</div>
+""", unsafe_allow_html=True)
