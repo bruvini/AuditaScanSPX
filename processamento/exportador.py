@@ -3,86 +3,101 @@ from io import BytesIO
 
 def gerar_excel_colorido(df):
     """
-    Gera um Excel com linhas coloridas baseadas na conciliação,
-    datas formatadas e colunas auto-ajustadas.
-    Compatível com a nova estrutura de colunas (DN, Médico, etc).
+    Gera um Excel ordenado por criticidade (Vermelho -> Amarelo -> Verde),
+    com coluna de revisão na coluna J e coloração restrita ao intervalo A:J.
     """
     if df is None or df.empty:
         return None
 
     df_export = df.copy()
+
+    # --- 1. LÓGICA DE ORDENAÇÃO POR PRIORIDADE ---
+    # Criamos um peso para ordenar: Vermelho (0), Amarelo (1), Verde (2)
+    def definir_prioridade(row):
+        s = str(row.get("Solicitação Física", "")).strip().upper()
+        l = str(row.get("Laudo Digital", "")).strip().upper()
+        
+        if s == "SIM" and l == "SIM":
+            return 2 # Verde (Fim)
+        if s == "NÃO" and l == "NÃO":
+            return 0 # Vermelho (Início)
+        return 1     # Amarelo (Meio)
+
+    df_export['_prioridade'] = df_export.apply(definir_prioridade, axis=1)
+    # Ordena pelo peso e depois por Data do Exame
+    df_export = df_export.sort_values(by=['_prioridade', 'Data do Exame'], ascending=[True, True])
     
-    # 1. Tratamento de Datas para o Excel não mostrar horas (00:00:00)
-    # A coluna 'DN' já vem como string do comparador, então focamos na 'Data do Exame'
+    # Remove a coluna temporária após ordenar
+    df_export = df_export.drop(columns=['_prioridade'])
+
+    # --- 2. ADIÇÃO DA COLUNA J (REVISÃO) ---
+    df_export["Observações de Revisão"] = "" # Coluna J
+
+    # Tratamento de Datas para exibição
     if "Data do Exame" in df_export.columns:
         df_export["Data do Exame"] = pd.to_datetime(df_export["Data do Exame"]).dt.date
 
     output = BytesIO()
     
-    # Engine 'xlsxwriter' é necessária para formatação condicional avançada
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         df_export.to_excel(writer, index=False, sheet_name='Auditoria')
         workbook  = writer.book
         worksheet = writer.sheets['Auditoria']
 
-        # --- DEFINIÇÃO DE ESTILOS ---
+        # --- ESTILOS ---
         fmt_data = 'dd/mm/yyyy'
+        style_base = {'border': 1, 'align': 'left', 'valign': 'vcenter'}
         
-        # Estilos de linha (Fundo + Borda + Formato de Data)
-        style_base = {'border': 1, 'num_format': fmt_data}
+        f_verde    = workbook.add_format({**style_base, 'bg_color': '#C6EFCE', 'font_color': '#006100'})
+        f_amarelo  = workbook.add_format({**style_base, 'bg_color': '#FFEB9C', 'font_color': '#9C5700'})
+        f_vermelho = workbook.add_format({**style_base, 'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
         
-        f_verde    = workbook.add_format({**style_base, 'bg_color': '#C6EFCE', 'font_color': '#006100'}) # Verde Excel
-        f_amarelo  = workbook.add_format({**style_base, 'bg_color': '#FFEB9C', 'font_color': '#9C5700'}) # Amarelo Excel
-        f_vermelho = workbook.add_format({**style_base, 'bg_color': '#FFC7CE', 'font_color': '#9C0006'}) # Vermelho Excel
-        
-        # Estilo do Cabeçalho
+        # Formato específico para a coluna de Data para não perder o dd/mm/yyyy
+        f_v_data = workbook.add_format({**style_base, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': fmt_data})
+        f_a_data = workbook.add_format({**style_base, 'bg_color': '#FFEB9C', 'font_color': '#9C5700', 'num_format': fmt_data})
+        f_r_data = workbook.add_format({**style_base, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': fmt_data})
+
         f_header = workbook.add_format({
-            'bold': True, 
-            'bg_color': '#4472C4', # Azul corporativo
-            'font_color': 'white',
-            'border': 1,
-            'align': 'center',
-            'valign': 'vcenter'
+            'bold': True, 'bg_color': '#4472C4', 'font_color': 'white',
+            'border': 1, 'align': 'center', 'valign': 'vcenter'
         })
 
-        # --- LÓGICA DE COLORAÇÃO ---
-        # Identifica a posição das colunas críticas pelos NOVOS NOMES
-        try:
-            idx_solic = df_export.columns.get_loc("Solicitação Física")
-            idx_laudo = df_export.columns.get_loc("Laudo Digital")
-        except KeyError:
-            # Segurança: Se as colunas não existirem, não aplica cor mas gera o excel
-            idx_solic = -1
-            idx_laudo = -1
+        # --- IDENTIFICAÇÃO DE COLUNAS ---
+        idx_solic = df_export.columns.get_loc("Solicitação Física")
+        idx_laudo = df_export.columns.get_loc("Laudo Digital")
+        last_col  = df_export.columns.get_loc("Observações de Revisão") # Coluna J (9)
 
-        # Itera sobre as linhas para aplicar a cor
+        # --- LÓGICA DE COLORAÇÃO RESTRITA (A:J) ---
         for row_num in range(len(df_export)):
-            fmt = f_amarelo # Padrão: Divergência Parcial
+            s = str(df_export.iloc[row_num, idx_solic]).strip().upper()
+            l = str(df_export.iloc[row_num, idx_laudo]).strip().upper()
             
-            if idx_solic != -1 and idx_laudo != -1:
-                # Pega o valor da célula (convertendo para string maiúscula para garantir)
-                s = str(df_export.iloc[row_num, idx_solic]).strip().upper()
-                l = str(df_export.iloc[row_num, idx_laudo]).strip().upper()
+            # Seleção do formato da linha e do formato específico da célula de data
+            if s == "SIM" and l == "SIM":
+                fmt, fmt_dt = f_verde, f_v_data
+            elif s == "NÃO" and l == "NÃO":
+                fmt, fmt_dt = f_vermelho, f_r_data
+            else:
+                fmt, fmt_dt = f_amarelo, f_a_data
+            
+            # Pintamos célula por célula da coluna A até J para não vazar a cor para o resto do Excel
+            for col_num in range(last_col + 1):
+                val = df_export.iloc[row_num, col_num]
+                # Se for a primeira coluna (Data), aplica formato de data
+                f_final = fmt_dt if col_num == 0 else fmt
                 
-                if s == "SIM" and l == "SIM":
-                    fmt = f_verde
-                elif s == "NÃO" and l == "NÃO":
-                    fmt = f_vermelho
-                # Qualquer outra combinação (SIM/NÃO ou NÃO/SIM) fica Amarelo
-            
-            # Aplica o formato na linha inteira (+1 pois o header é a linha 0)
-            worksheet.set_row(row_num + 1, None, fmt)
+                # worksheet.write(linha, coluna, valor, formato)
+                # row_num + 1 para pular o cabeçalho
+                worksheet.write(row_num + 1, col_num, val, f_final)
 
-        # --- AJUSTE FINO DO LAYOUT ---
-        # Formata o cabeçalho e ajusta largura das colunas
+        # --- AJUSTE DE LAYOUT ---
         for i, col in enumerate(df_export.columns):
-            # Calcula largura baseada no tamanho do texto da coluna ou do header
             max_len = max(
                 df_export[col].astype(str).map(len).max(),
                 len(str(col))
             )
-            # Adiciona um respiro (+2) e trava num máximo de 50 para não ficar gigante
-            width = min(max_len + 2, 50)
+            # A coluna de observações ganha um espaço maior por padrão
+            width = 40 if i == last_col else min(max_len + 2, 50)
             
             worksheet.set_column(i, i, width)
             worksheet.write(0, i, col, f_header)
