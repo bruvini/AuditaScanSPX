@@ -52,7 +52,7 @@ def extrair_dados_cabecalho(texto_pagina):
 
 def processar_pdf_laudos(caminho_pdf):
     import pdfplumber
-    exames_encontrados = []
+    import gc
     
     # Dicionário para evitar duplicatas exatas na mesma página/documento
     # Chave única: Paciente + Data + Procedimento (normalizado)
@@ -61,7 +61,10 @@ def processar_pdf_laudos(caminho_pdf):
     with pdfplumber.open(caminho_pdf) as pdf:
         for pagina in pdf.pages:
             texto_bruto = pagina.extract_text()
-            if not texto_bruto: continue
+            if not texto_bruto:
+                del pagina
+                gc.collect()
+                continue
             
             dados = extrair_dados_cabecalho(texto_bruto)
             
@@ -73,14 +76,18 @@ def processar_pdf_laudos(caminho_pdf):
                 chave_unica = f"{dados['paciente']}|{dados['data_exame']}|{dados['procedimento']}"
                 
                 if chave_unica not in chaves_processadas:
-                    exames_encontrados.append({
+                    yield {
                         'Paciente': dados['paciente'],
                         'Nascimento': dados['nascimento'],
                         'Data Exame': dados['data_exame'],
                         'Médico': dados['medico'],
                         'Procedimento': dados['procedimento'],
                         'Atendimento': dados['atendimento']
-                    })
+                    }
                     chaves_processadas.add(chave_unica)
-                    
-    return exames_encontrados
+
+            # Limpeza de memória forçada (Garbage Collector)
+            del texto_bruto
+            del dados
+            del pagina
+            gc.collect()

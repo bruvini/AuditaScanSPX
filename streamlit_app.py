@@ -145,7 +145,9 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("🔄 Nova Auditoria", type="secondary", use_container_width=True):
+        import gc
         st.session_state.clear()
+        gc.collect()
         st.rerun()
 
 # --- HEADER E KPIS ---
@@ -221,27 +223,34 @@ with st.container():
             # Card de Sucesso com contagem
             st.success(f"✅ **{len(st.session_state.df_laudos)} exames** extraídos.")
             if st.checkbox("Trocar Laudos?", key="chk_laudos"):
+                import gc
+                del st.session_state.df_laudos
                 st.session_state.df_laudos = None
+                gc.collect()
                 st.rerun()
         else:
             arquivos_laudos = st.file_uploader("Upload Laudos (.pdf)", type=["pdf"], accept_multiple_files=True)
             if arquivos_laudos:
                 with st.status("Processando Laudos...", expanded=True):
+                    import tempfile
                     todos_exames = []
-                    for i, arq in enumerate(arquivos_laudos):
+                    for arq in arquivos_laudos:
                         st.write(f"Lendo: {arq.name}")
-                        temp_filename = f"temp_laudo_{i}.pdf"
-                        with open(temp_filename, "wb") as f: f.write(arq.getbuffer())
-                        try:
-                            todos_exames.extend(processar_pdf_laudos(temp_filename))
-                        except Exception as e:
-                            st.error(f"Erro: {e}")
-                        finally:
-                            if os.path.exists(temp_filename): os.remove(temp_filename)
+                        with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
+                            tmp.write(arq.getbuffer())
+                            tmp.flush()
+                            try:
+                                for exame in processar_pdf_laudos(tmp.name):
+                                    todos_exames.append(exame)
+                            except Exception as e:
+                                st.error(f"Erro: {e}")
                     
                     if todos_exames:
                         st.session_state.df_laudos = pd.DataFrame(todos_exames)
                         st.session_state.etapa = max(st.session_state.etapa, 3)
+                        del todos_exames
+                        import gc
+                        gc.collect()
                         st.rerun()
                     else:
                         st.warning("Nenhum dado encontrado.")
@@ -262,27 +271,33 @@ with st.container():
                 st.dataframe(st.session_state.df_scans, use_container_width=True)
                 
             if st.checkbox("Trocar Scans?", key="chk_scans"):
+                import gc
+                del st.session_state.df_scans
                 st.session_state.df_scans = None
+                gc.collect()
                 st.rerun()
         else:
             uploaded_scans = st.file_uploader("Upload Scans (.pdf)", type=["pdf"], accept_multiple_files=True, key="up_scans")
             if uploaded_scans:
                 with st.status("Lendo (OCR)...", expanded=True):
+                    import tempfile
                     todos_scans = []
-                    for i, arq in enumerate(uploaded_scans):
+                    for arq in uploaded_scans:
                         st.write(f"Processando: {arq.name}")
-                        temp_filename = f"temp_scan_{i}.pdf"
-                        with open(temp_filename, "wb") as f: f.write(arq.getbuffer())
-                        try:
-                            todos_scans.extend(extrair_dados_solicitacao(temp_filename))
-                        except Exception as e:
-                            st.error(f"Erro: {e}")
-                        finally:
-                            if os.path.exists(temp_filename): os.remove(temp_filename)
+                        with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
+                            tmp.write(arq.getbuffer())
+                            tmp.flush()
+                            try:
+                                todos_scans.extend(extrair_dados_solicitacao(tmp.name))
+                            except Exception as e:
+                                st.error(f"Erro: {e}")
                     
                     if todos_scans:
                         st.session_state.df_scans = pd.DataFrame(todos_scans)
                         st.session_state.etapa = 4
+                        del todos_scans
+                        import gc
+                        gc.collect()
                         st.rerun()
                     else:
                         st.warning("Nenhuma guia identificada.")
