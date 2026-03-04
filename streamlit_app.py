@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORTAÇÃO DOS SEUS MÓDULOS ---
 try:
-    from processamento.extrator_excel import carregar_dados_excel, analisar_qualidade_dados
+    from processamento.extrator_excel import carregar_dados_excel
     from processamento.extrator_pdf import processar_pdf_laudos
     from processamento.comparador import realizar_conciliacao
     from processamento.exportador import gerar_excel_colorido
