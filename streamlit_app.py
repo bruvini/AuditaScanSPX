@@ -1,8 +1,12 @@
 import streamlit as st
 import pandas as pd
 import os
+import sys
 import time
 from datetime import datetime, timedelta
+
+# Garante que o diretório atual está no path para as importações
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # --- IMPORTAÇÃO DOS SEUS MÓDULOS ---
 try:
