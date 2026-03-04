@@ -8,6 +8,15 @@ from datetime import datetime, timedelta
 # Garante que o diretório atual está no path para as importações
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# --- CONFIGURAÇÃO DA PÁGINA ---
+# DEVE SER A PRIMEIRA CHAMADA DO STREAMLIT
+st.set_page_config(
+    page_title="AuditaScan SPX",
+    layout="wide",
+    page_icon="🏥",
+    initial_sidebar_state="expanded"
+)
+
 # --- IMPORTAÇÃO DOS SEUS MÓDULOS ---
 try:
     from processamento.extrator_excel import carregar_dados_excel
@@ -18,14 +27,6 @@ try:
 except ImportError as e:
     st.error(f"❌ Erro crítico de importação: {e}. Verifique se a pasta 'processamento' existe.")
     st.stop()
-
-# --- CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(
-    page_title="AuditaScan SPX",
-    layout="wide",
-    page_icon="🏥",
-    initial_sidebar_state="expanded"
-)
 
 # --- ESTILO CSS (Design System) ---
 st.markdown("""

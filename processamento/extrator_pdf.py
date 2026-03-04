@@ -1,4 +1,3 @@
-import pdfplumber
 import re
 
 def limpar_texto(texto):
@@ -52,6 +51,7 @@ def extrair_dados_cabecalho(texto_pagina):
     return dados
 
 def processar_pdf_laudos(caminho_pdf):
+    import pdfplumber
     exames_encontrados = []
     
     # Dicionário para evitar duplicatas exatas na mesma página/documento
