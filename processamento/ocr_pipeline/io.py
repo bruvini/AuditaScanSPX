@@ -1,4 +1,3 @@
-import pdfplumber
 import logging
 from typing import List, Optional
 from .cleaners import clean_ocr_text
@@ -11,6 +10,8 @@ class PDFReader:
         """
         Reads a PDF file and returns a list of cleaned text strings, one per page.
         """
+        import pdfplumber
+
         pages_text = []
         try:
             with pdfplumber.open(pdf_path) as pdf:
