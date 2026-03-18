@@ -1,21 +1,10 @@
 import streamlit as st
-import pandas as pd
-import os
-import sys
-import time
-from datetime import datetime, timedelta
 
-# Garante que o diretório atual está no path para as importações
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# --- CONFIGURAÇÃO DA PÁGINA ---
-# DEVE SER A PRIMEIRA CHAMADA DO STREAMLIT
-st.set_page_config(
-    page_title="AuditaScan SPX",
-    layout="wide",
-    page_icon="🏥",
-    initial_sidebar_state="expanded"
+st.title("🎈 My new app")
+st.write(
+    "Let's start building! For help and inspiration, head over to [docs.streamlit.io](https://docs.streamlit.io/)."
 )
+<<<<<<< HEAD
 
 # --- IMPORTAÇÃO DOS SEUS MÓDULOS ---
 try:
@@ -410,3 +399,5 @@ st.markdown(f"""
     <p>© {datetime.now().year} Hospital Municipal São José. Todos os direitos reservados. | Desenvolvido para Coordenação NIR pelo Enf. Bruno Vinícius.</p>
 </div>
 """, unsafe_allow_html=True)
+=======
+>>>>>>> 8b3a0db (Refatoração completa do zero)
