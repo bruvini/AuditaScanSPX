@@ -233,23 +233,29 @@ with st.container():
             if arquivos_laudos:
                 with st.status("Processando Laudos...", expanded=True):
                     import tempfile
-                    todos_exames = []
+                    import gc
+                    chunks_laudos = []
                     for arq in arquivos_laudos:
                         st.write(f"Lendo: {arq.name}")
                         with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
                             tmp.write(arq.getbuffer())
                             tmp.flush()
                             try:
+                                exames_arquivo = []
                                 for exame in processar_pdf_laudos(tmp.name):
-                                    todos_exames.append(exame)
+                                    exames_arquivo.append(exame)
+                                if exames_arquivo:
+                                    chunks_laudos.append(pd.DataFrame(exames_arquivo))
+                                del exames_arquivo
                             except Exception as e:
                                 st.error(f"Erro: {e}")
+                        # Liberta memória do ficheiro logo após processá-lo
+                        gc.collect()
                     
-                    if todos_exames:
-                        st.session_state.df_laudos = pd.DataFrame(todos_exames)
+                    if chunks_laudos:
+                        st.session_state.df_laudos = pd.concat(chunks_laudos, ignore_index=True)
                         st.session_state.etapa = max(st.session_state.etapa, 3)
-                        del todos_exames
-                        import gc
+                        del chunks_laudos
                         gc.collect()
                         st.rerun()
                     else:
@@ -281,22 +287,27 @@ with st.container():
             if uploaded_scans:
                 with st.status("Lendo (OCR)...", expanded=True):
                     import tempfile
-                    todos_scans = []
+                    import gc
+                    chunks_scans = []
                     for arq in uploaded_scans:
                         st.write(f"Processando: {arq.name}")
                         with tempfile.NamedTemporaryFile(delete=True, suffix=".pdf") as tmp:
                             tmp.write(arq.getbuffer())
                             tmp.flush()
                             try:
-                                todos_scans.extend(extrair_dados_solicitacao(tmp.name))
+                                scans_arquivo = extrair_dados_solicitacao(tmp.name)
+                                if scans_arquivo:
+                                    chunks_scans.append(pd.DataFrame(scans_arquivo))
+                                del scans_arquivo
                             except Exception as e:
                                 st.error(f"Erro: {e}")
+                        # Liberta memória do ficheiro logo após processá-lo
+                        gc.collect()
                     
-                    if todos_scans:
-                        st.session_state.df_scans = pd.DataFrame(todos_scans)
+                    if chunks_scans:
+                        st.session_state.df_scans = pd.concat(chunks_scans, ignore_index=True)
                         st.session_state.etapa = 4
-                        del todos_scans
-                        import gc
+                        del chunks_scans
                         gc.collect()
                         st.rerun()
                     else:
