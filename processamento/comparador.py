@@ -123,15 +123,15 @@ def verificar_divergencia_scan(row_excel, df_scans, paciente_norm, nasc_excel):
                 eh_candidato = True
             elif sim_nome > 0.6: 
                 score += 35
-                obs_temp.append(f"Divergência Nome (Planilha: {row_excel['Paciente']} / PDF: {scan['Paciente']})")
+                obs_temp.append(f"Divergência Nome (Planilha: {row_excel.get('Paciente', '')} / PDF: {scan.get('Paciente', '')})")
                 eh_candidato = True
 
         elif ocr_nome_fail and ocr_nasc_fail:
             pass
 
         if eh_candidato:
-            proc_excel = padronizar_texto_avancado(row_excel['Procedimento'])
-            proc_scan = padronizar_texto_avancado(scan['Procedimento'])
+            proc_excel = padronizar_texto_avancado(row_excel.get('Procedimento', ''))
+            proc_scan = padronizar_texto_avancado(scan.get('Procedimento', ''))
             
             # Usa a nova função de comparação robusta
             if comparar_procedimentos_robusto(proc_excel, proc_scan):
@@ -160,10 +160,10 @@ def realizar_conciliacao(df_excel, df_laudos, df_scans=None):
     df_excel['Nasc_Str'] = pd.to_datetime(df_excel[col_nasc_excel], errors='coerce').dt.strftime('%d/%m/%Y')
 
     for idx, row in df_excel.iterrows():
-        paciente_ex_norm = padronizar_texto_avancado(row['Paciente'])
-        nasc_ex = row['Nasc_Str']
-        data_ex = row['Data_Str']
-        proc_ex = padronizar_texto_avancado(row['Procedimento'])
+        paciente_ex_norm = padronizar_texto_avancado(row.get('Paciente', ''))
+        nasc_ex = row.get('Nasc_Str', '')
+        data_ex = row.get('Data_Str', '')
+        proc_ex = padronizar_texto_avancado(row.get('Procedimento', ''))
         
         medico_original = row.get('Médico Solicitante', row.get('Médico', ''))
         if pd.isna(medico_original): medico_original = ""
@@ -209,10 +209,10 @@ def realizar_conciliacao(df_excel, df_laudos, df_scans=None):
         scan_status, scan_obs = verificar_divergencia_scan(row, df_scans, paciente_ex_norm, nasc_ex)
 
         resultados.append({
-            "Data do Exame": row['Data'],
-            "Paciente": row['Paciente'],
-            "DN": row['Nasc_Str'],
-            "Procedimento": row['Procedimento'],
+            "Data do Exame": row.get('Data', ''),
+            "Paciente": row.get('Paciente', ''),
+            "DN": row.get('Nasc_Str', ''),
+            "Procedimento": row.get('Procedimento', ''),
             "Médico": medico_original,
             "Solicitação Física": scan_status,
             "Detalhe Scan": "; ".join(scan_obs),
